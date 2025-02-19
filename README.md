@@ -2,5 +2,5 @@
 
 Grupo:
 David Alessandro Santos Souza, 
-Leonardo Alexandre de Souza Barreto, 
+Leonardo Alexandre de Souza Barreto e  
 Maxwell ALexandre Souza
