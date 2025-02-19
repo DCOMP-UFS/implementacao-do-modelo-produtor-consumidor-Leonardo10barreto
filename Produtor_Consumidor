@@ -1,119 +1,160 @@
-/* File:  
- *    pth_pool.c
- *
- * Purpose:
- *    Implementação de um pool de threads
- *
- *
- * Compile:  gcc -g -Wall -o pth_pool pth_pool.c -lpthread -lrt
- * Usage:    ./pth_hello
- */
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h> 
+#include <pthread.h>
 #include <unistd.h>
-#include <semaphore.h>
 #include <time.h>
 
-#define THREAD_NUM 4    // Tamanho do pool de threads
-#define BUFFER_SIZE 256 // Númermo máximo de tarefas enfileiradas
+#define PRODUCER_THREADS 3  // Número de threads produtoras
+#define CONSUMER_THREADS 3  // Número de threads consumidoras
+#define BUFFER_SIZE 5       // Tamanho máximo da fila
 
-typedef struct Task{
-   int a, b;
-}Task;
+typedef struct {
+    int clock[3];  // Relógio vetorial (exemplo com 3 dimensões)
+} VectorClock;
 
-Task taskQueue[BUFFER_SIZE];
-int taskCount = 0;
+VectorClock clockQueue[BUFFER_SIZE];  // Fila de relógios vetoriais
+int clockCount = 0;                   // Contador de relógios na fila
 
-pthread_mutex_t mutex;
+pthread_mutex_t mutex;                // Mutex para controle de acesso à fila
+pthread_cond_t condFull;              // Variável de condição para fila cheia
+pthread_cond_t condEmpty;             // Variável de condição para fila vazia
 
-pthread_cond_t condFull;
-pthread_cond_t condEmpty;
+// Função para gerar um relógio vetorial aleatório
+VectorClock generateVectorClock() {
 
-void executeTask(Task* task, int id){
-   int result = task->a + task->b;
-   printf("(Thread %d) Sum of %d and %d is %d\n", id, task->a, task->b, result);
+    VectorClock clock;
+
+    for (int i = 0; i < 3; i++) {
+        clock.clock[i] = (rand() % 100)+1;  // Valores aleatórios entre 0 e 9
+    }
+    return clock;
 }
 
-Task getTask(){
-   pthread_mutex_lock(&mutex);
-   
-   while (taskCount == 0){
-      pthread_cond_wait(&condEmpty, &mutex);
-   }
-   
-   Task task = taskQueue[0];
-   int i;
-   for (i = 0; i < taskCount - 1; i++){
-      taskQueue[i] = taskQueue[i+1];
-   }
-   taskCount--;
-   
-   pthread_mutex_unlock(&mutex);
-   pthread_cond_signal(&condFull);
-   return task;
+// Função para imprimir um relógio vetorial
+void printVectorClock(VectorClock clock, int threadId) {
+    printf("(Consumidor %d) Relógio vetorial: [%d, %d, %d]\n",
+           threadId, clock.clock[0], clock.clock[1], clock.clock[2]);
 }
 
-void submitTask(Task task){
-   pthread_mutex_lock(&mutex);
+// Função para adicionar um relógio à fila (produtor)
+void produceVectorClock(VectorClock clock) {
+    pthread_mutex_lock(&mutex);
 
-   while (taskCount == BUFFER_SIZE){
-      pthread_cond_wait(&condFull, &mutex);
-   }
+    // Espera enquanto a fila estiver cheia
+    while (clockCount == BUFFER_SIZE) {
+        pthread_cond_wait(&condFull, &mutex);
+    }
 
-   taskQueue[taskCount] = task;
-   taskCount++;
+    // Adiciona o relógio à fila
+    clockQueue[clockCount] = clock;
+    clockCount++;
 
-   pthread_mutex_unlock(&mutex);
-   pthread_cond_signal(&condEmpty);
+    pthread_mutex_unlock(&mutex);
+    pthread_cond_signal(&condEmpty);  // Sinaliza que a fila não está mais vazia
 }
 
-void *startThread(void* args);  
+// Função para remover um relógio da fila (consumidor)
+VectorClock consumeVectorClock() {
+    pthread_mutex_lock(&mutex);
 
-/*--------------------------------------------------------------------*/
-int main(int argc, char* argv[]) {
-   pthread_mutex_init(&mutex, NULL);
-   
-   pthread_cond_init(&condEmpty, NULL);
-   pthread_cond_init(&condFull, NULL);
+    // Espera enquanto a fila estiver vazia
+    while (clockCount == 0) {
+        pthread_cond_wait(&condEmpty, &mutex);
+    }
 
-   pthread_t thread[THREAD_NUM]; 
-   long i;
-   for (i = 0; i < THREAD_NUM; i++){  
-      if (pthread_create(&thread[i], NULL, &startThread, (void*) i) != 0) {
-         perror("Failed to create the thread");
-      }  
-   }
-   
-   srand(time(NULL));
-   for (i = 0; i < 500; i++){
-      Task t = {
-         .a = rand() % 100,
-         .b = rand() % 100
-      };
-      submitTask(t);
-   }
-   
-   for (i = 0; i < THREAD_NUM; i++){  
-      if (pthread_join(thread[i], NULL) != 0) {
-         perror("Failed to join the thread");
-      }  
-   }
-   
-   pthread_mutex_destroy(&mutex);
-   pthread_cond_destroy(&condEmpty);
-   pthread_cond_destroy(&condFull);
-   return 0;
-}  /* main */
+    // Remove o relógio da fila
+    VectorClock clock = clockQueue[0];
 
-/*-------------------------------------------------------------------*/
-void *startThread(void* args) {
-   long id = (long) args; 
-   while (1){ 
-      Task task = getTask();
-      executeTask(&task, id);
-      sleep(rand()%5);
-   }
-   return NULL;
-} 
+    for (int i = 0; i < clockCount - 1; i++) {
+        clockQueue[i] = clockQueue[i + 1];
+    }
+    clockCount--;
 
+    pthread_mutex_unlock(&mutex);
+    pthread_cond_signal(&condFull);  // Sinaliza que a fila não está mais cheia
+    return clock;
+}
+
+// Função executada pelas threads produtoras
+void* producer(void* args) {
+    
+    long id = (long) args;
+    
+    while (1) {
+        
+        VectorClock clock = generateVectorClock();
+        
+        produceVectorClock(clock);
+        printf("(Produtor %ld) Produziu relógio: [%d, %d, %d]\n",
+               id, clock.clock[0], clock.clock[1], clock.clock[2]);
+        sleep(1);  // Produz um relógio a cada 1 segundo (cenário 1)
+        
+        // sleep(2);  // Produz um relógio a cada 2 segundos (cenário 2)
+        
+        // sleep(5); Teste para produzir mais lento que o consumo. Verificar a espera de um consumidor querer um clock produzido na fila quando a fila está vazia.
+    }
+
+    return NULL;
+}
+
+// Função executada pelas threads consumidoras
+void* consumer(void* args) {
+
+    long id = (long) args;
+
+    while (1) {
+
+        VectorClock clock = consumeVectorClock();
+        printVectorClock(clock, id);
+        sleep(2);  // Consome um relógio a cada 2 segundos (cenário 1)
+        
+        // sleep(1);  // Consome um relógio a cada 1 segundo (cenário 2)
+        
+        //sleep(5); Teste para consumir mais lento que a produção. Verificar a espera de um consumidor quando a fila está cheia.
+    }
+
+    return NULL;
+}
+
+int main() {
+
+    srand(time(NULL));  // Inicializa a semente para números aleatórios
+
+    // Inicializa mutex e variáveis de condição
+    pthread_mutex_init(&mutex, NULL);
+    pthread_cond_init(&condFull, NULL);
+    pthread_cond_init(&condEmpty, NULL);
+
+    // Cria threads produtoras
+    pthread_t producers[PRODUCER_THREADS];
+
+    for (long i = 0; i < PRODUCER_THREADS; i++) {
+
+        pthread_create(&producers[i], NULL, producer, (void*) i);
+    }
+
+    // Cria threads consumidoras
+    pthread_t consumers[CONSUMER_THREADS];
+
+    for (long i = 0; i < CONSUMER_THREADS; i++) {
+
+        pthread_create(&consumers[i], NULL, consumer, (void*) i);
+    }
+
+    // Aguarda as threads (nunca termina neste exemplo)
+    for (int i = 0; i < PRODUCER_THREADS; i++) {
+
+        pthread_join(producers[i], NULL);
+    }
+    for (int i = 0; i < CONSUMER_THREADS; i++) {
+        
+        pthread_join(consumers[i], NULL);
+    }
+
+    // Destrói mutex e variáveis de condição
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&condFull);
+    pthread_cond_destroy(&condEmpty);
+
+    return 0;
+}
