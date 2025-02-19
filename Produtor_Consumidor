@@ -6,7 +6,7 @@
 
 #define PRODUCER_THREADS 3  // Número de threads produtoras
 #define CONSUMER_THREADS 3  // Número de threads consumidoras
-#define BUFFER_SIZE 5       // Tamanho máximo da fila
+#define BUFFER_SIZE 256       // Tamanho máximo da fila
 
 typedef struct {
     int clock[3];  // Relógio vetorial (exemplo com 3 dimensões)
@@ -42,6 +42,8 @@ void produceVectorClock(VectorClock clock) {
 
     // Espera enquanto a fila estiver cheia
     while (clockCount == BUFFER_SIZE) {
+    // Caso de teste para visualizar a espera pelo consumidor enquanto ele n chega e a fila está cheia
+    //    printf("Fila está cheia, espere um relógio ser consumido!! \n");
         pthread_cond_wait(&condFull, &mutex);
     }
 
@@ -59,6 +61,8 @@ VectorClock consumeVectorClock() {
 
     // Espera enquanto a fila estiver vazia
     while (clockCount == 0) {
+        // Caso de teste para visualizar a espera pelo produtor enquanto ele n chega e a fila está vazia!
+     //   printf("Fila está vazia, espere um relógio ser produzido!! \n");
         pthread_cond_wait(&condEmpty, &mutex);
     }
 
